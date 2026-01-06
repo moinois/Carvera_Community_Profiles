@@ -141,7 +141,7 @@ def convert_row_to_json(row):
     name = f"Makera_{get_value('Description (tool_description)')}_{get_value('Preset Name (preset_name)')}".strip()
 
     toolType = get_value('Type (tool_type)')
-    shape = "Endmill.fcstd"
+    shape = "endmill.fcstd"
     toolTypeOut = "Endmill"
 
     unit =  get_value("Unit (tool_unit)").lower()
@@ -150,7 +150,7 @@ def convert_row_to_json(row):
         shape = "drill.fcstd"
         toolTypeOut = "Endmill"
     if toolType == 'ball end mill':
-        shape = "Ballend.fcstd"
+        shape = "ballend.fcstd"
         toolTypeOut = "Ballend"
     if toolType == 'chamfer mill':
         desc = get_value("Description (tool_description)").lower()
