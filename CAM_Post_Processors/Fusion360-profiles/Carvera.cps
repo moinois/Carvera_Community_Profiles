@@ -201,6 +201,14 @@ properties = {
     value      : true,
     scope      : "post"
   },
+    rotate4thAxisRelativeToModelPlane: {
+    title      : "Automatic rotation of the 4th Axis",
+    description: "Automatically rotates the 4th axis between consecutive setups. This means that the X-axis of the part has to be the rotation axis for the A axis. It will calculate the angle difference between the WCS and the model plane and automatically rotate the A axis accordingly between each setup.",
+    group      : "preferences",
+    type       : "boolean",
+    value      : true,
+    scope      : "post"
+  },
 };
 
 // wcs definiton
@@ -676,6 +684,8 @@ function forceWorkPlane() {
   currentWorkPlaneABC = undefined;
 }
 
+var currentAAngle = 0;
+
 function defineWorkPlane(_section, _setWorkPlane) {
   var abc = new Vector(0, 0, 0);
   if (machineConfiguration.isMultiAxisConfiguration()) { // use 5-axis indexing for multi-axis mode
@@ -693,20 +703,78 @@ function defineWorkPlane(_section, _setWorkPlane) {
       }
     }
   } else { // pure 3D
-    var remaining = _section.workPlane;
-    if (!isSameDirection(remaining.forward, new Vector(0, 0, 1))) {
-      error(localize("Tool orientation is not supported."));
-      return abc;
+    // Inject a 4th axis rotation if the WCS and model plane are not aligned
+    if(getProperty("rotate4thAxisRelativeToModelPlane")) {
+      if (!retracted) { // Make sure we are retracted before rotating A axis
+        if (typeof moveToSafeRetractPosition == "function") {
+          moveToSafeRetractPosition();
+        } else {
+          writeRetract(Z);
+        }
+      }
+      currentAAngle = getAAxisRotation(currentAAngle);
+      if(currentAAngle != 0) {
+        // Keep it real... And make output tidier.
+        var angle = Math.round(currentAAngle * 1000) / 1000;
+        writeBlock("G90 G0 A" + angle + " (Rotate the A axis to align WCS and model plane)");
+      }
+    } else {
+      var remaining = _section.workPlane;
+      if (!isSameDirection(remaining.forward, new Vector(0, 0, 1))) {
+        error(localize("Tool orientation is not supported."));
+        return abc;
+      }
+      setRotation(remaining);
     }
-    setRotation(remaining);
-  }
-  if (currentSection && (currentSection.getId() == _section.getId())) {
-    operationSupportsTCP = currentSection.getOptimizedTCPMode() == OPTIMIZE_NONE;
-    if (!currentSection.isMultiAxis() && (useMultiAxisFeatures || isSameDirection(machineConfiguration.getSpindleAxis(), currentSection.workPlane.forward))) {
-      operationSupportsTCP = false;
+    if (currentSection && (currentSection.getId() == _section.getId())) {
+      operationSupportsTCP = currentSection.getOptimizedTCPMode() == OPTIMIZE_NONE;
+      if (!currentSection.isMultiAxis() && (useMultiAxisFeatures || isSameDirection(machineConfiguration.getSpindleAxis(), currentSection.workPlane.forward))) {
+        operationSupportsTCP = false;
+      }
     }
   }
   return abc;
+}
+
+// Calculates the angle between previous model plane and a [current] model plane for A axis rotation
+function getAAxisRotation(currentAngle) {
+  if(isFirstSection())
+    return 0; // no rotation for first section
+  var relativeAngle = signedXRotationDegBetweenPlanes(getPreviousSection().getModelPlane(), currentSection.getModelPlane());
+
+  return normalizeDegrees(relativeAngle + currentAngle);
+}
+
+function signedXRotationDegBetweenPlanes(planeA, planeB) {
+
+  var aUp = planeA.up;
+  var bUp = planeB.up;
+
+  aUp = aUp.normalize == "function" ? aUp.normalize() : aUp;
+  bUp = bUp.normalize == "function" ? bUp.normalize() : bUp;
+
+  var dot = Vector.dot(aUp, bUp);
+  if (dot > 1) dot = 1;
+  if (dot < -1) dot = -1;
+
+  var theta = Math.acos(dot); // 0..pi
+
+  // sign by X of cross(aUp, bUp)
+  var cross = Vector.cross(planeA.up, planeB.up);
+  var sign = (cross.x >= 0) ? 1 : -1;
+  
+  return radToDeg(theta) * sign;
+}
+
+function radToDeg(theta) {
+  return theta * 180.0 / Math.PI;
+}
+
+  // normalize to (-180,180)
+function normalizeDegrees(deg) {
+  while (deg < -180) deg += 360;
+  while (deg > 180) deg -= 360;
+  return deg;
 }
 
 function setWorkPlane(abc) {
@@ -784,7 +852,7 @@ function getWorkPlaneMachineABC(workPlane) {
   }
 
   return abc;
-}
+  }
 
 // Parse the TLO value from a comment
 function parseTLO(comment) {
