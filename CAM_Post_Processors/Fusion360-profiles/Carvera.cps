@@ -711,15 +711,11 @@ function defineWorkPlane(_section, _setWorkPlane) {
   } else { // pure 3D
     // Inject a 4th axis rotation if the WCS and model plane are not aligned
     if(getProperty("rotate4thAxisRelativeToModelPlane")) {
-
-      var previousAngle = currentAAngle;
       currentAAngle = calculateAAxisRotation();
-      if(previousAngle != currentAAngle) {
-        writeComment("Retracting to safe position for A axis rotation");
-        writeRetract(Z, Y);
-        var angle = Math.round(currentAAngle * 1000) / 1000;
-        writeBlock(gAbsIncModal.format(90), gFormat.format(54), gFormat.format(0), "A" + angle, formatComment("Rotate the A axis to align WCS and model plane"));
-      }
+      writeComment("Retracting to safe position for possible A axis rotation");
+      writeRetract(Z, Y);
+      var angle = Math.round(currentAAngle * 1000) / 1000;
+      writeBlock(gAbsIncModal.format(90), gFormat.format(54), gFormat.format(0), "A" + angle, formatComment("Rotate the A axis to align WCS and model plane"));
     } else {
       var remaining = _section.workPlane;
       if (!isSameDirection(remaining.forward, new Vector(0, 0, 1))) {
