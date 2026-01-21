@@ -189,8 +189,6 @@ properties = {
       {title:"Carvera Air Tool Changes", id:"carvAirMtc"}
     ],
     value: "carvAirMtc",
-
-
     scope: "post"
   },
   useShankSizeForManualChange: {
@@ -201,12 +199,20 @@ properties = {
     value      : true,
     scope      : "post"
   },
-    rotate4thAxisRelativeToModelPlane: {
+  rotate4thAxisRelativeToModelPlane: {
     title      : "Automatic rotation of the 4th Axis",
     description: "Automatically rotates the 4th axis between consecutive setups. This means that the X-axis of the part has to be the rotation axis for the A axis. It will calculates the difference between consecutive model planes and automatically rotate the A axis accordingly between each setup. Setup 1 will be treated as the A-axis rotation of 0.",
     group      : "preferences",
     type       : "boolean",
     value      : true,
+    scope      : "post"
+  },
+  yAxisSafePosition: {
+    title      : "Safe Y-axis position for A-axis rotation",
+    description: "The Y-axis position to move to when performing a safe A-axis rotation. A value of 0 means that the Y-axis will not be moved during A-axis rotations. This setting can be left default for normal operation.",
+    group      : "preferences",
+    type       : "integer",
+    value      : -100,
     scope      : "post"
   },
 };
@@ -271,11 +277,11 @@ var iOutput = createVariable({prefix:"I"}, xyzFormat);
 var jOutput = createVariable({prefix:"J"}, xyzFormat);
 var kOutput = createVariable({prefix:"K"}, xyzFormat);
 
-var gMotionModal = createModal({}, gFormat); // modal group 1 // G0-G3, ...
-var gPlaneModal = createModal({onchange:function () {gMotionModal.reset();}}, gFormat); // modal group 2 // G17-19
-var gAbsIncModal = createModal({}, gFormat); // modal group 3 // G90-91
-var gFeedModeModal = createModal({}, gFormat); // modal group 5 // G93-94
-var gUnitModal = createModal({}, gFormat); // modal group 6 // G20-21
+var gMotionModal = createOutputVariable({}, gFormat); // modal group 1 // G0-G3, ...
+var gPlaneModal = createOutputVariable({onchange:function () {gMotionModal.reset();}}, gFormat); // modal group 2 // G17-19
+var gAbsIncModal = createOutputVariable({}, gFormat); // modal group 3 // G90-91
+var gFeedModeModal = createOutputVariable({}, gFormat); // modal group 5 // G93-94
+var gUnitModal = createOutputVariable({}, gFormat); // modal group 6 // G20-21
 
 var WARNING_WORK_OFFSET = 0;
 
@@ -705,18 +711,14 @@ function defineWorkPlane(_section, _setWorkPlane) {
   } else { // pure 3D
     // Inject a 4th axis rotation if the WCS and model plane are not aligned
     if(getProperty("rotate4thAxisRelativeToModelPlane")) {
-      if (!retracted) { // Make sure we are retracted before rotating A axis
-        if (typeof moveToSafeRetractPosition == "function") {
-          moveToSafeRetractPosition();
-        } else {
-          writeRetract(Z);
-        }
-      }
-      currentAAngle = getAAxisRotation(currentAAngle);
-      if(currentAAngle != 0) {
-        // Keep it real... And make output tidier.
+
+      var previousAngle = currentAAngle;
+      currentAAngle = calculateAAxisRotation();
+      if(previousAngle != currentAAngle) {
+        writeComment("Retracting to safe position for A axis rotation");
+        writeRetract(Z, Y);
         var angle = Math.round(currentAAngle * 1000) / 1000;
-        writeBlock("G90 G0 A" + angle + " (Rotate the A axis to align WCS and model plane)");
+        writeBlock(gAbsIncModal.format(90), gFormat.format(54), gFormat.format(0), "A" + angle, formatComment("Rotate the A axis to align WCS and model plane"));
       }
     } else {
       var remaining = _section.workPlane;
@@ -737,40 +739,36 @@ function defineWorkPlane(_section, _setWorkPlane) {
 }
 
 // Calculates the angle between previous model plane and a [current] model plane for A axis rotation
-function getAAxisRotation(currentAngle) {
-  if(isFirstSection())
-    return 0; // no rotation for first section
-  var relativeAngle = signedXRotationDegBetweenPlanes(getPreviousSection().getModelPlane(), currentSection.getModelPlane());
+function calculateAAxisRotation() {
+  var relativeAngle = signedXPlaneRotationDeg(currentSection.getModelPlane());
 
-  return normalizeDegrees(relativeAngle + currentAngle);
+  return normalizeDegrees(relativeAngle);
 }
 
-function signedXRotationDegBetweenPlanes(planeA, planeB) {
+function signedXPlaneRotationDeg(plane) {
 
-  var aUp = planeA.up;
-  var bUp = planeB.up;
+  var globalForward = new Vector(0, 0, 1);
+  var planeForward = plane.forward;
 
-  aUp = aUp.normalize == "function" ? aUp.normalize() : aUp;
-  bUp = bUp.normalize == "function" ? bUp.normalize() : bUp;
-
-  var dot = Vector.dot(aUp, bUp);
+  var dot = Vector.dot(globalForward, planeForward);
   if (dot > 1) dot = 1;
   if (dot < -1) dot = -1;
 
   var theta = Math.acos(dot); // 0..pi
 
-  // sign by X of cross(aUp, bUp)
-  var cross = Vector.cross(planeA.up, planeB.up);
+  // sign by X of cross(globalForward, planeForward)
+  var cross = Vector.cross(globalForward, planeForward);
   var sign = (cross.x >= 0) ? 1 : -1;
   
-  return radToDeg(theta) * sign;
+  return normalizeDegrees(radToDeg(theta) * sign);
 }
 
+// Convert radians to degrees
 function radToDeg(theta) {
   return theta * 180.0 / Math.PI;
 }
 
-  // normalize to (-180,180)
+// normalize to (-180,180)
 function normalizeDegrees(deg) {
   while (deg < -180) deg += 360;
   while (deg > 180) deg -= 360;
@@ -1502,10 +1500,15 @@ function writeRetract() {
     retractAxes[arguments[i]] = true;
   }
 
+  safeYPosition = getProperty("yAxisSafePosition");
+
   if (retractAxes[0] && retractAxes[1] && retractAxes[2]) {
     if (getProperty("returnClearance")) {
       writeBlock(gFormat.format(28));
     }
+  } else if (retractAxes[1] && retractAxes[2] && safeYPosition != 0) {
+    gMotionModal.reset();
+    writeBlock(gAbsIncModal.format(90), gFormat.format(53), gMotionModal.format(0), "Y" + xyzFormat.format(toPreciseUnit(safeYPosition, MM)), "Z" + xyzFormat.format(toPreciseUnit(-3, MM)));
   } else if (retractAxes[0]) {
     gMotionModal.reset();
     writeBlock(gAbsIncModal.format(90), gFormat.format(53), gMotionModal.format(0), "Z" + xyzFormat.format(toPreciseUnit(-3, MM)));
