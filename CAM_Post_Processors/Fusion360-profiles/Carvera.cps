@@ -203,7 +203,7 @@ properties = {
   },
     rotate4thAxisRelativeToModelPlane: {
     title      : "Automatic rotation of the 4th Axis",
-    description: "Automatically rotates the 4th axis between consecutive setups. This means that the X-axis of the part has to be the rotation axis for the A axis. It will calculate the angle difference between the WCS and the model plane and automatically rotate the A axis accordingly between each setup.",
+    description: "Automatically rotates the 4th axis between consecutive setups. This means that the X-axis of the part has to be the rotation axis for the A axis. It will calculates the difference between consecutive model planes and automatically rotate the A axis accordingly between each setup. Setup 1 will be treated as the A-axis rotation of 0.",
     group      : "preferences",
     type       : "boolean",
     value      : true,
