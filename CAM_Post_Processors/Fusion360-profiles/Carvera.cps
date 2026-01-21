@@ -723,7 +723,7 @@ function defineWorkPlane(_section, _setWorkPlane) {
     } else {
       var remaining = _section.workPlane;
       if (!isSameDirection(remaining.forward, new Vector(0, 0, 1))) {
-        error(localize("Tool orientation is not supported."));
+        error(localize("Tool axis must be vertical when automatic 4th axis rotation is disabled."));
         return abc;
       }
       setRotation(remaining);
